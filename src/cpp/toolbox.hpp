@@ -12,26 +12,118 @@
 #include <optional>
 #include <array>
 #include <cstddef>
+#include <iostream>
+#include <fstream>
+#include <any>
+#include <stdexcept>
+
+#ifdef UNICODE
+	using string = std::wstring;
+	using string_view = std::wstring_view;
+#else
+	using string = std::string;
+	using string_view = std::string_view;
+#endif
 
 namespace SE7 {
 	namespace internal {
 		template<class F, class R, class... argv>
 		concept invocable_r = std::is_invocable_r_v<R, F, argv...>;
+
+		template<class T>
+		concept primitive = 
+			std::integral<T> || 
+			std::floating_point<T> ||
+			std::is_enum_v<T> ||
+			std::is_union_v<T>;
+
+		template<class T>
+		concept non_primitive = !primitive<T> && std::is_class_v<T>;
+
+		template<class T>
+		concept pointer = std::is_pointer_v<T>;
+
+		constexpr string_view throw_on_non_null_terminated(string_view str) {
+			if (str[str.length() - 1] != '\0') {
+				throw std::runtime_error("Detected string that is not null terminated");
+			}
+
+			return str;
+		}
 	}
 
-	namespace win32 {
-#ifdef UNICODE
-		using string = std::wstring;
-		using string_view = std::wstring_view;
-#else
-		using string = std::string;
-		using string_view = std::string_view;
-#endif
+	namespace interoperability {
+		// TODO: HOW TO DO CLASSES? Should we use toolbox from other repository?
 
+		class datafile {
+		private:
+			std::fstream internal_stream;
+
+			static constexpr string_view write_typename_unsigned = "u";
+			static constexpr string_view write_typename_integral = "int";
+			static constexpr string_view write_typename_floating_point = "float";
+		public:
+			datafile(
+				const string &filename, 
+				std::ios_base::openmode mode = std::ios_base::in | std::ios_base::out
+			) : internal_stream(filename, mode | std::ios_base::binary) {}
+
+			template<internal::pointer P>
+			void write(P &&p) = delete;
+
+			template<internal::primitive P>
+			void write(string_view variable_name, P &&value) {
+				if constexpr (std::is_integral_v<P>) {
+					if constexpr (std::is_unsigned_v<P>) {
+						this->internal_stream.write(
+							reinterpret_cast<char *>(write_typename_unsigned.data()),
+							write_typename_unsigned.length()
+						);
+					}
+
+					this->internal_stream.write(
+						reinterpret_cast<char *>(write_typename_integral.data()),
+						write_typename_integral.length()
+					);
+				} else if (std::is_floating_point_v<P>) {
+					this->internal_stream.write(
+						reinterpret_cast<char *>(write_typename_floating_point.data()),
+						write_typename_floating_point.length()
+					);
+				}
+
+				static constexpr size_t sizeof_data = sizeof(P);
+
+				this->internal_stream.write(
+					reinterpret_cast<char *>(&sizeof_data),
+					sizeof(sizeof_data)
+				);
+
+				this->internal_stream.write(
+					variable_name.data(),
+					variable_name.length()
+				);
+
+				this->internal_stream.write(
+					reinterpret_cast<char *>(&value),
+					sizeof(P)
+				);
+			}
+
+			void write() {
+
+			}
+		};
+	}
+
+	// Naming convention for Win32 API is UpperCase, in contrast to everything else,
+	// which is in snake_case. Template types are in UpperCase (template<class ClassType>),
+	// but concepts are still in snake_case.
+	namespace win32 {
 		class Pipe {
 		private:
 			HANDLE internalHandle;
-			const string &internalName;
+			const string internalName;
 			const DWORD internalOpenMode;
 			const DWORD internalPipeMode;
 			const DWORD internalMaxInstances;
@@ -41,38 +133,45 @@ namespace SE7 {
 			const LPSECURITY_ATTRIBUTES internalPSecurityAttributes;
 		public:
 			struct PipeAccess {
-				static constexpr DWORD InBound = 0x00000001;
-				static constexpr DWORD OutBound = 0x00000002;
-				static constexpr DWORD Duplex = 0x00000003;
+				static constexpr DWORD InBound = PIPE_ACCESS_INBOUND;
+				static constexpr DWORD OutBound = PIPE_ACCESS_OUTBOUND;
+				static constexpr DWORD Duplex = PIPE_ACCESS_DUPLEX;
 			};
 
 			struct FileFlag {
-				static constexpr DWORD FirstPipeInstance = 0x00080000;
-				static constexpr DWORD Overlapped = 0x40000000;
-				static constexpr DWORD WriteThrough = 0x80000000;
+				static constexpr DWORD FirstPipeInstance = FILE_FLAG_FIRST_PIPE_INSTANCE;
+				static constexpr DWORD Overlapped = FILE_FLAG_OVERLAPPED;
+				static constexpr DWORD WriteThrough = FILE_FLAG_WRITE_THROUGH;
 			};
 
 			struct SecurityAccess {
-				static constexpr DWORD WriteDAC = 0x00040000L;
-				static constexpr DWORD WriteOwner = 0x00080000L;
-				static constexpr DWORD AccessSystemSecurity = 0x01000000L;
+				static constexpr DWORD WriteDAC = WRITE_DAC;
+				static constexpr DWORD WriteOwner = WRITE_OWNER;
+				static constexpr DWORD AccessSystemSecurity = ACCESS_SYSTEM_SECURITY;
 			};
 
 			struct StreamType {
-				static constexpr DWORD Byte = 0x00000000;
-				static constexpr DWORD Message = 0x00000004;
+				static constexpr DWORD Byte = PIPE_TYPE_BYTE;
+				static constexpr DWORD Message = PIPE_TYPE_MESSAGE;
 			};
 
 			struct ReadMode {
-				static constexpr DWORD Byte = 0x00000000;
-				static constexpr DWORD Message = 0x00000002;
+				static constexpr DWORD Byte = PIPE_READMODE_BYTE;
+				static constexpr DWORD Message = PIPE_READMODE_MESSAGE;
+			};
+
+			struct WaitMode {
+				static constexpr DWORD Wait = PIPE_WAIT;
+				static constexpr DWORD NoWait = PIPE_NOWAIT;
+			};
+
+			struct RemoteClientMode {
+				static constexpr DWORD Accept = PIPE_ACCEPT_REMOTE_CLIENTS;
+				static constexpr DWORD Reject = PIPE_REJECT_REMOTE_CLIENTS;
 			};
 
 			Pipe(
-				// Using const std::string & instead of std::string_view because std::string_view is not
-				// designed to be automatically null terminated like std::string is,
-				// and we need to guarantee that when passing into CreateNamedPipe()
-				const string &name,
+				string_view name,
 				DWORD                 openMode,
 				DWORD                 pipeMode,
 				DWORD                 maxInstances,
@@ -82,7 +181,7 @@ namespace SE7 {
 				LPSECURITY_ATTRIBUTES pSecurityAttributes
 			) : internalHandle(
 				CreateNamedPipe(
-					name.c_str(),
+					internal::throw_on_non_null_terminated(name).data(),
 					openMode,
 					pipeMode,
 					maxInstances,
@@ -102,7 +201,7 @@ namespace SE7 {
 			internalPSecurityAttributes(pSecurityAttributes)
 			{}
 
-			const string &GetName() const noexcept { return this->internalName; }
+			std::string_view GetName() const noexcept { return this->internalName; }
 			const DWORD GetOpenMode() const noexcept { return this->internalOpenMode; }
 			const DWORD GetPipeMode() const noexcept { return this->internalPipeMode; }
 			const DWORD GetMaxInstances() const noexcept { return this->internalMaxInstances; }
