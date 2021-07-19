@@ -12,33 +12,35 @@
 #include <optional>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <fstream>
 #include <any>
 #include <stdexcept>
+#include <vector>
+#include <initializer_list>
+#include <functional>
+#include <map>
+#include <typeindex>
+#include <algorithm>
+#include <memory>
 
 #ifdef UNICODE
-	using string = std::wstring;
-	using string_view = std::wstring_view;
+using string = std::wstring;
+using string_view = std::wstring_view;
 #else
-	using string = std::string;
-	using string_view = std::string_view;
+using string = std::string;
+using string_view = std::string_view;
+#endif
+
+#if !defined(x64) && !defined(x86)
+#define x64
 #endif
 
 namespace SE7 {
 	namespace internal {
 		template<class F, class R, class... argv>
 		concept invocable_r = std::is_invocable_r_v<R, F, argv...>;
-
-		template<class T>
-		concept primitive = 
-			std::integral<T> || 
-			std::floating_point<T> ||
-			std::is_enum_v<T> ||
-			std::is_union_v<T>;
-
-		template<class T>
-		concept non_primitive = !primitive<T> && std::is_class_v<T>;
 
 		template<class T>
 		concept pointer = std::is_pointer_v<T>;
@@ -53,66 +55,18 @@ namespace SE7 {
 	}
 
 	namespace interoperability {
-		// TODO: HOW TO DO CLASSES? Should we use toolbox from other repository?
+		
 
 		class datafile {
 		private:
 			std::fstream internal_stream;
-
-			static constexpr string_view write_typename_unsigned = "u";
-			static constexpr string_view write_typename_integral = "int";
-			static constexpr string_view write_typename_floating_point = "float";
 		public:
 			datafile(
 				const string &filename, 
 				std::ios_base::openmode mode = std::ios_base::in | std::ios_base::out
 			) : internal_stream(filename, mode | std::ios_base::binary) {}
 
-			template<internal::pointer P>
-			void write(P &&p) = delete;
 
-			template<internal::primitive P>
-			void write(string_view variable_name, P &&value) {
-				if constexpr (std::is_integral_v<P>) {
-					if constexpr (std::is_unsigned_v<P>) {
-						this->internal_stream.write(
-							reinterpret_cast<char *>(write_typename_unsigned.data()),
-							write_typename_unsigned.length()
-						);
-					}
-
-					this->internal_stream.write(
-						reinterpret_cast<char *>(write_typename_integral.data()),
-						write_typename_integral.length()
-					);
-				} else if (std::is_floating_point_v<P>) {
-					this->internal_stream.write(
-						reinterpret_cast<char *>(write_typename_floating_point.data()),
-						write_typename_floating_point.length()
-					);
-				}
-
-				static constexpr size_t sizeof_data = sizeof(P);
-
-				this->internal_stream.write(
-					reinterpret_cast<char *>(&sizeof_data),
-					sizeof(sizeof_data)
-				);
-
-				this->internal_stream.write(
-					variable_name.data(),
-					variable_name.length()
-				);
-
-				this->internal_stream.write(
-					reinterpret_cast<char *>(&value),
-					sizeof(P)
-				);
-			}
-
-			void write() {
-
-			}
 		};
 	}
 
@@ -201,7 +155,7 @@ namespace SE7 {
 			internalPSecurityAttributes(pSecurityAttributes)
 			{}
 
-			std::string_view GetName() const noexcept { return this->internalName; }
+			string_view GetName() const noexcept { return this->internalName; }
 			const DWORD GetOpenMode() const noexcept { return this->internalOpenMode; }
 			const DWORD GetPipeMode() const noexcept { return this->internalPipeMode; }
 			const DWORD GetMaxInstances() const noexcept { return this->internalMaxInstances; }
