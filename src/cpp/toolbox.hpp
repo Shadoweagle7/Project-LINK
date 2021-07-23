@@ -191,7 +191,8 @@ namespace SE7 {
 				win32::FileMapping
 			> internal_stream;
 
-			using flag_t = unsigned int;
+			using flag_t = std::uint32_t;
+			using type_size_t = std::uint32_t;
 
 			static constexpr flag_t std_fstream = 0;
 			static constexpr flag_t win32_pipe = 1;
@@ -204,14 +205,67 @@ namespace SE7 {
 
 			static constexpr flag_t type_char = 		0b0000000011;
 			static constexpr flag_t type_short = 		0b0000000111;
+
+			// No unsigned wchar_t
 			static constexpr flag_t type_wchar_t = 		0b1000001111;
+
 			static constexpr flag_t type_int = 			0b0000011111;
 			static constexpr flag_t type_long = 		0b0000111111;
 			static constexpr flag_t type_long_long = 	0b0001111111;
 
-			// Maybe in the future make an unsigned float or unsigned double
+			// No unsigned float or unsigned double
 			static constexpr flag_t type_float = 		0b101111111;
 			static constexpr flag_t type_double = 		0b111111111;
+
+			static constexpr type_size_t type_size_bool = 1;
+
+			static constexpr type_size_t type_size_char = 1;
+			static constexpr type_size_t type_size_short = 2;
+
+			static constexpr type_size_t type_size_wchar_t = 2;
+
+			static constexpr type_size_t type_size_int = 4;
+			static constexpr type_size_t type_size_long = 8;
+			static constexpr type_size_t type_size_long_long = 16;
+
+			static constexpr type_size_t type_size_float = 4;
+			static constexpr type_size_t type_size_double = 8;
+
+			static constexpr type_size_t get_type_size(flag_t flag) {
+				// Remove sign
+
+				switch (flag) {
+					case type_bool:
+						return type_size_bool;
+					case type_wchar_t:
+						return type_size_wchar_t;
+					case type_float:
+						return type_size_float;
+					case type_double:
+						return type_size_double;
+					default:
+						break;
+				}
+
+				flag &= ~type_unsigned;
+
+				switch (flag) {
+					case type_char:
+						return type_size_char;
+					case type_short:
+						return type_size_short;
+					case type_int:
+						return type_size_int;
+					case type_long:
+						return type_size_long;
+					case type_long_long:
+						return type_size_long_long;
+					default:
+						break;
+				}
+
+				return static_cast<type_size_t>(-1);
+			}
 
 			static std::map<std::type_index, flag_t> type_map;
 			static std::mutex type_map_init_mutex;
@@ -280,16 +334,23 @@ namespace SE7 {
 							this->internal_stream
 						);
 
-						// Format: flag_t variable_name variable_value
+						// Format: flag_t variable_name_length variable_name variable_value
 
 						temp_ref.write(
 							reinterpret_cast<const char *>(&type_map[typeid(P)]),
 							sizeof(flag_t)
 						);
 
+						std::uint32_t variable_name_length = name.length();
+
+						temp_ref.write(
+							reinterpret_cast<const char *>(&variable_name_length),
+							sizeof(unsigned int)
+						);
+
 						temp_ref.write(
 							name.data(),
-							name.length()
+							variable_name_length
 						);
 
 						temp_ref.write(
