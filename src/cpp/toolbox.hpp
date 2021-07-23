@@ -24,6 +24,8 @@
 #include <typeindex>
 #include <algorithm>
 #include <memory>
+#include <mutex>
+#include <filesystem>
 
 #ifdef UNICODE
 using string = std::wstring;
@@ -45,6 +47,9 @@ namespace SE7 {
 		template<class T>
 		concept pointer = std::is_pointer_v<T>;
 
+		template<class T>
+		concept primitive = std::integral<T> || std::floating_point<T>;
+
 		constexpr string_view throw_on_non_null_terminated(string_view str) {
 			if (str[str.length() - 1] != '\0') {
 				throw std::runtime_error("Detected string that is not null terminated");
@@ -52,22 +57,6 @@ namespace SE7 {
 
 			return str;
 		}
-	}
-
-	namespace interoperability {
-		
-
-		class datafile {
-		private:
-			std::fstream internal_stream;
-		public:
-			datafile(
-				const string &filename, 
-				std::ios_base::openmode mode = std::ios_base::in | std::ios_base::out
-			) : internal_stream(filename, mode | std::ios_base::binary) {}
-
-
-		};
 	}
 
 	// Naming convention for Win32 API is UpperCase, in contrast to everything else,
@@ -187,6 +176,140 @@ namespace SE7 {
 				CloseHandle(this->internalHandle);
 			}
 		};
+
+		class FileMapping {
+
+		};
+	}
+
+	namespace interoperability {
+		class toolbox {
+		private:
+			std::variant<
+				std::fstream,
+				win32::Pipe,
+				win32::FileMapping
+			> internal_stream;
+
+			using flag_t = unsigned int;
+
+			static constexpr flag_t std_fstream = 0;
+			static constexpr flag_t win32_pipe = 1;
+			static constexpr flag_t win32_file_mapping = 2;
+
+			static constexpr flag_t type_unsigned = 	0b1000000000;
+
+			// No unsigned bool
+			static constexpr flag_t type_bool = 		0b1000000001;
+
+			static constexpr flag_t type_char = 		0b0000000011;
+			static constexpr flag_t type_short = 		0b0000000111;
+			static constexpr flag_t type_wchar_t = 		0b1000001111;
+			static constexpr flag_t type_int = 			0b0000011111;
+			static constexpr flag_t type_long = 		0b0000111111;
+			static constexpr flag_t type_long_long = 	0b0001111111;
+
+			// Maybe in the future make an unsigned float or unsigned double
+			static constexpr flag_t type_float = 		0b101111111;
+			static constexpr flag_t type_double = 		0b111111111;
+
+			static std::map<std::type_index, flag_t> type_map;
+			static std::mutex type_map_init_mutex;
+			static bool initialized;
+
+			static void type_map_init() {
+				// Multithread initialization protection in case programmer is
+				// using multiple toolboxes in multiple threads
+
+				std::unique_lock<std::mutex> type_map_init_lock(type_map_init_mutex);
+
+				if (!initialized) {
+					type_map.insert({ typeid(bool), type_bool });
+					type_map.insert({ typeid(char), type_char });
+					type_map.insert({ typeid(unsigned char), type_unsigned | type_char });
+					type_map.insert({ typeid(short), type_short });
+					type_map.insert({ typeid(unsigned short), type_unsigned | type_short });
+					type_map.insert({ typeid(wchar_t), type_wchar_t });
+					type_map.insert({ typeid(int), type_int });
+					type_map.insert({ typeid(unsigned int), type_unsigned | type_int });
+					type_map.insert({ typeid(long), type_long });
+					type_map.insert({ typeid(unsigned long), type_unsigned | type_long });
+					type_map.insert({ typeid(long long), type_long_long });
+					type_map.insert({ typeid(unsigned long long), type_unsigned | type_long_long });
+					type_map.insert({ typeid(float), type_float });
+					type_map.insert({ typeid(double), type_double });
+				}
+			}
+
+			std::ios_base::openmode do_not_override_if_exists(const string &filename) {
+				if (std::filesystem::exists(filename)) {
+					return std::ios_base::in | std::ios_base::out | 
+						   std::ios_base::binary;
+				}
+
+				return std::ios_base::in | std::ios_base::out | 
+					   std::ios_base::binary | std::ios_base::trunc;
+			}
+		public:
+			toolbox(
+				const string &filename
+			) : internal_stream(
+				std::fstream(
+					filename,
+					do_not_override_if_exists(filename)
+				)
+			) {
+				if (!std::get<std_fstream>(this->internal_stream).is_open()) {
+					throw std::runtime_error(
+						"Couldn't create / open internal toolbox file \"" +
+						filename + "\""
+					);
+				}
+
+				type_map_init();
+			}
+
+			template<internal::primitive P>
+			void create(string_view name, P &&p) {
+				// TODO: Do we need this?
+				//internal::throw_on_non_null_terminated(name);
+
+				switch (this->internal_stream.index()) {
+					case std_fstream: {
+						std::fstream &temp_ref = std::get<std::fstream>(
+							this->internal_stream
+						);
+
+						// Format: flag_t variable_name variable_value
+
+						temp_ref.write(
+							reinterpret_cast<const char *>(&type_map[typeid(P)]),
+							sizeof(flag_t)
+						);
+
+						temp_ref.write(
+							name.data(),
+							name.length()
+						);
+
+						temp_ref.write(
+							reinterpret_cast<const char *>(&p),
+							sizeof(P)
+						);
+
+						break;
+					}
+					case win32_pipe:
+						break;
+					case win32_file_mapping:
+						break;
+				}
+			}
+		};
+
+		std::map<std::type_index, toolbox::flag_t> toolbox::type_map;
+		std::mutex toolbox::type_map_init_mutex;
+		bool toolbox::initialized;
 	}
 }
 
