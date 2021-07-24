@@ -5,112 +5,49 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.channels.Pipe;
 import java.util.Hashtable;
-import java.nio.ByteBuffer;
-import java.util.Map;
-import java.util.Hashtable;
+import java.util.ArrayList;
 import java.io.IOException;
 import java.io.FileNotFoundException;
-import java.util.Arrays;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Stream;
+import java.util.stream.Collectors;
 
-public class Toolbox {
-	private class FileUtilities {
-		private File file;
-		private FileInputStream fileInputStream;
-		private FileOutputStream fileOutputStream;
-
-		public FileUtilities(String path) throws FileNotFoundException {
-			if (file == null) {
-				throw new IllegalArgumentException("path was null");
-			}
-
-			this.file = new File(path);
-			this.fileInputStream = new FileInputStream(this.file);
-			this.fileOutputStream = new FileOutputStream(this.file);
-		}
-
-		public FileUtilities(File file) throws FileNotFoundException {
-			if (file == null) {
-				throw new IllegalArgumentException("file was null");
-			}
-
-			this.file = file;
-			this.fileInputStream = new FileInputStream(this.file);
-			this.fileOutputStream = new FileOutputStream(this.file);
-		}
-
-		public File getFile() {
-			return this.file;
-		}
-
-		public FileInputStream getInputStream() {
-			return this.fileInputStream;
-		}
-
-		public FileOutputStream getOutputStream() {
-			return this.fileOutputStream;
-		}
-	}
-
-	private Variant internalStream = new Variant(FileUtilities.class, Pipe.class);
-
-	private static final int FLAG_UNSIGNED = 	0b1000000000;
+public abstract class Toolbox {
+	protected static final int FLAG_UNSIGNED = 	0b1000000000;
 
 	// No unsigned bool
-	private static final int FLAG_BOOL = 		0b1000000001;
+	protected static final int FLAG_BOOL = 		0b1000000001;
 
-	private static final int FLAG_CHAR = 		0b0000000011;
-	private static final int FLAG_SHORT = 		0b0000000111;
+	protected static final int FLAG_CHAR = 		0b0000000011;
+	protected static final int FLAG_SHORT = 	0b0000000111;
 
 	// No unsigned wchar_t
-	private static final int FLAG_WCHAR_T = 	0b1000001111;
+	protected static final int FLAG_WCHAR_T = 	0b1000001111;
 
-	private static final int FLAG_INT = 		0b0000011111;
-	private static final int FLAG_LONG = 		0b0000111111;
-	private static final int FLAG_LONG_LONG = 	0b0001111111;
+	protected static final int FLAG_INT = 		0b0000011111;
+	protected static final int FLAG_LONG = 		0b0000111111;
+	protected static final int FLAG_LONG_LONG = 0b0001111111;
 
 	// No unsigned float or unsigned double
-	private static final int FLAG_FLOAT = 		0b101111111;
-	private static final int FLAG_DOUBLE = 		0b111111111;
+	protected static final int FLAG_FLOAT = 	0b101111111;
+	protected static final int FLAG_DOUBLE = 	0b111111111;
 
-	private static final int SIZE_BOOL = 1;
+	protected static final int SIZE_BOOL = 1;
 
-	private static final int SIZE_CHAR = 1;
-	private static final int SIZE_SHORT = 2;
+	protected static final int SIZE_CHAR = 1;
+	protected static final int SIZE_SHORT = 2;
 
-	private static final int SIZE_WCHAR_T = 2;
+	protected static final int SIZE_WCHAR_T = 2;
 
-	private static final int SIZE_INT = 4;
-	private static final int SIZE_LONG = 8;
-	private static final int SIZE_LONG_LONG = 16;
+	protected static final int SIZE_INT = 4;
+	protected static final int SIZE_LONG = 8;
+	protected static final int SIZE_LONG_LONG = 16;
 
-	private static final int SIZE_FLOAT = 4;
-	private static final int SIZE_DOUBLE = 8;
+	protected static final int SIZE_FLOAT = 4;
+	protected static final int SIZE_DOUBLE = 8;
 
-	private static <K, V> K getKeyFromValueInMap(Map<K, V> map, V value) {
-		int index = 0;
-
-		for (V v : map.values()) {
-			if (v.equals(value)) {
-				break;
-			}
-
-			index++;
-		}
-
-		int curr = 0;
-
-		for (K k : map.keySet()) {
-			if (curr == index) {
-				return k;
-			}
-
-			curr++;
-		}
-
-		return null;
-	}
-
-	private static int getTypeSize(int flag) {
+	protected static int getTypeSize(int flag) {
 		// Remove sign
 
 		switch (flag) {
@@ -146,120 +83,145 @@ public class Toolbox {
 		return -1;
 	}
 
-	private static Hashtable<Class, java.lang.Integer> typeMapInit() {
-		Hashtable<Class, java.lang.Integer> typeMapCI = new Hashtable<Class, java.lang.Integer>(14);
+	// Note to self: Java is always Big - Endian
 
-		typeMapCI.put(Boolean.class, FLAG_BOOL);
-		typeMapCI.put(Character.class, FLAG_CHAR);
-		typeMapCI.put(UnsignedCharacter.class, FLAG_UNSIGNED | FLAG_CHAR);
-		typeMapCI.put(Short.class, FLAG_SHORT);
-		typeMapCI.put(UnsignedShort.class, FLAG_UNSIGNED | FLAG_SHORT);
-		typeMapCI.put(WideCharacter.class, FLAG_WCHAR_T);
-		typeMapCI.put(Integer.class, FLAG_INT);
-		typeMapCI.put(UnsignedInteger.class, FLAG_UNSIGNED | FLAG_INT);
-		typeMapCI.put(Long.class, FLAG_LONG);
-		typeMapCI.put(UnsignedLong.class, FLAG_UNSIGNED | FLAG_LONG);
-		typeMapCI.put(LongLong.class, FLAG_LONG_LONG);
-		typeMapCI.put(UnsignedLongLong.class, FLAG_UNSIGNED | FLAG_LONG_LONG);
-		typeMapCI.put(Float.class, FLAG_FLOAT);
-		typeMapCI.put(Double.class, FLAG_DOUBLE);
+	protected static byte[] endianFlip(byte[] bytes) {
+		if (bytes == null){
+			return bytes;
+		}
+
+		int offset = bytes.length % 2 == 0 ? 1 : 0;
+		int beginIndex = 0, endIndex = bytes.length - 1;
+
+		while (beginIndex + offset != endIndex) {
+			byte temp = bytes[beginIndex];
+			bytes[beginIndex] = bytes[endIndex];
+			bytes[endIndex] = temp;
+
+			beginIndex++;
+			endIndex--;
+		}
+
+		if (offset == 1) {
+			byte temp = bytes[beginIndex];
+			bytes[beginIndex] = bytes[endIndex];
+			bytes[endIndex] = temp;
+		}
+
+		return bytes;
+	}
+
+	protected static final byte LITTLE_ENDIAN = 0;
+	protected static final byte BIG_ENDIAN = 1;
+
+	public static class TypePair {
+		public Class type;
+		public java.lang.Integer flag;
+
+		public TypePair(Class type, java.lang.Integer flag) {
+			this.type = type;
+			this.flag = flag;
+		}
+
+		public boolean equals(Object object) {
+			if (this == object) {
+				return true;
+			} else if (
+				object == null || 
+				object.getClass() != this.getClass()
+			) {
+				return false;	
+			}
+
+			TypePair typePair = (TypePair)object;
+
+			return
+				typePair.type != null &&
+				typePair.flag != null &&
+				this.flag != null &&
+				this.flag != null &&
+				typePair.type.equals(this.type) &&
+				typePair.flag.equals(this.flag);
+		}
+	}
+
+	public static class TypeMap {
+		private ArrayList<TypePair> typePairs;
+		private static final int defaultInitialCapacity = 14;
+
+		public TypeMap() {
+			this.typePairs = new ArrayList<TypePair>(defaultInitialCapacity);
+		}
+
+		public TypeMap(int initialCapactity) {
+			this.typePairs = new ArrayList<TypePair>(initialCapactity);
+		}
+
+		void add(TypePair typePair) {
+			this.typePairs.add(typePair);
+		}
+
+		Class at(java.lang.Integer flag) {
+			Stream<TypePair> streamTypePairs = this.typePairs.stream().filter(
+				typePair -> typePair.flag == flag
+			);
+
+			if (streamTypePairs.count() == 0) {
+				throw new IllegalArgumentException("Cannot find flag");
+			}
+
+			return streamTypePairs.collect(Collectors.toList()).get(0).type;
+		}
+
+		java.lang.Integer at(Class type) {
+			Stream<TypePair> streamTypePairs = this.typePairs.stream().filter(
+				typePair -> typePair.type == type
+			);
+
+			if (streamTypePairs.count() == 0) {
+				throw new IllegalArgumentException("Cannot find flag");
+			}
+
+			return streamTypePairs.collect(Collectors.toList()).get(0).flag;
+		}
+	}
+
+	private static Lock typeMapLock = new ReentrantLock();
+
+	private static TypeMap typeMapInit() {
+		typeMapLock.lock();
+
+		TypeMap typeMapCI = new TypeMap(14);
+
+		typeMapCI.add(new TypePair(Boolean.class, FLAG_BOOL));
+		typeMapCI.add(new TypePair(Character.class, FLAG_CHAR));
+		typeMapCI.add(new TypePair(UnsignedCharacter.class, FLAG_UNSIGNED | FLAG_CHAR));
+		typeMapCI.add(new TypePair(Short.class, FLAG_SHORT));
+		typeMapCI.add(new TypePair(UnsignedShort.class, FLAG_UNSIGNED | FLAG_SHORT));
+		typeMapCI.add(new TypePair(WideCharacter.class, FLAG_WCHAR_T));
+		typeMapCI.add(new TypePair(Integer.class, FLAG_INT));
+		typeMapCI.add(new TypePair(UnsignedInteger.class, FLAG_UNSIGNED | FLAG_INT));
+		typeMapCI.add(new TypePair(Long.class, FLAG_LONG));
+		typeMapCI.add(new TypePair(UnsignedLong.class, FLAG_UNSIGNED | FLAG_LONG));
+		typeMapCI.add(new TypePair(LongLong.class, FLAG_LONG_LONG));
+		typeMapCI.add(new TypePair(UnsignedLongLong.class, FLAG_UNSIGNED | FLAG_LONG_LONG));
+		typeMapCI.add(new TypePair(Float.class, FLAG_FLOAT));
+		typeMapCI.add(new TypePair(Double.class, FLAG_DOUBLE));
+
+		try {
+			typeMapLock.unlock();
+		} catch (final Exception e) {}
 
 		return typeMapCI;
 	}
 
-	private static Hashtable<Class, java.lang.Integer> typeMap = typeMapInit();
+	protected static TypeMap typeMap = typeMapInit();
 
-	public Toolbox(File file) throws 
-		VariantTypeNotFoundException, FileNotFoundException,
-		IOException {
-		this.internalStream.set(new FileUtilities(file));
+	public abstract void get(Primitive primitive) throws ToolboxFileReadErrorException;
 
-		// From the JDK 15 documentation:
-		// Returns true if the named file does not exist and was successfully created;
-		// false if the named file already exists.
-		file.createNewFile();
-	}
+	public abstract void set(String variableName, Primitive value);
 
-	public Toolbox(Pipe pipe) throws VariantTypeNotFoundException {
-		this.internalStream.set(pipe);
-	}
+	public abstract void create(String variableName, Primitive value);
 
-	// Format: flag_t variable_name variable_value
-
-	public <T> T get(String variableName) throws 
-		ToolboxFileReadErrorException, IOException,
-		VariantTypeNotFoundException {
-		FileUtilities fileUtilties = this.internalStream.get(FileUtilities.class);
-		FileInputStream i = fileUtilties.getInputStream();
-		FileOutputStream o = fileUtilties.getOutputStream();
-
-		byte[] dataTypeBytes = new byte[java.lang.Integer.BYTES];
-
-		if (i.read(dataTypeBytes) != java.lang.Integer.BYTES) {
-			// TODO: DEBUG HERE, UNABLE TO READ DATA
-			System.out.println(Arrays.toString(dataTypeBytes));
-
-			throw new ToolboxFileReadErrorException();
-		}
-
-		ByteBuffer dataTypeByteBuffer = ByteBuffer.wrap(dataTypeBytes);
-		int dataTypeFlag = dataTypeByteBuffer.getInt();
-
-		byte[] variableNameLengthBytes = new byte[java.lang.Integer.BYTES];
-
-		if (i.read(variableNameLengthBytes) != java.lang.Integer.BYTES) {
-			throw new ToolboxFileReadErrorException();
-		}
-
-		ByteBuffer variableNameLengthByteBuffer = ByteBuffer.wrap(
-			variableNameLengthBytes
-		);
-
-		int variableNameLength = variableNameLengthByteBuffer.getInt();
-
-		byte[] variableNameBytes = new byte[variableNameLength];
-
-		if (i.read(variableNameBytes) != variableNameLength) {
-			throw new ToolboxFileReadErrorException();
-		}
-
-		String variableNameInFile = new String(variableNameBytes);
-
-		if (!variableNameInFile.equals(variableName)) {
-			throw new ToolboxFileReadErrorException(
-				"Name of requested variable could not be matched"
-			);
-		}
-
-		Class clazz = getKeyFromValueInMap(typeMap, dataTypeFlag);
-
-		if (clazz == null) {
-			throw new ToolboxFileReadErrorException(
-				"Type of requested variable could not be matched"
-			);
-		}
-
-		// Get size of datatype to read, read it
-		// and return it
-
-		int dataTypeSize = getTypeSize(dataTypeFlag);
-
-		byte[] data = new byte[dataTypeSize];
-
-		if (i.read(data) != dataTypeSize) {
-			throw new ToolboxFileReadErrorException();
-		}
-
-		System.out.println(Arrays.toString(data));
-
-		return null;
-	}
-
-	//public <T> void set(String variableName, T value) {}
-
-	//public <T> void create(String variableName, T value) {}
-
-	public void erase(String variableName) {
-
-	}
+	public abstract void erase(String variableName);
 }

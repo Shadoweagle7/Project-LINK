@@ -20,12 +20,12 @@
 #include <vector>
 #include <initializer_list>
 #include <functional>
-#include <map>
 #include <typeindex>
 #include <algorithm>
 #include <memory>
 #include <mutex>
 #include <filesystem>
+#include <bit>
 
 #ifdef UNICODE
 using string = std::wstring;
@@ -41,6 +41,11 @@ using string_view = std::string_view;
 
 namespace SE7 {
 	namespace internal {
+		class not_found : public std::runtime_error {
+		public:
+			not_found(const std::string &message) : std::runtime_error(message) {}
+		};
+
 		template<class F, class R, class... argv>
 		concept invocable_r = std::is_invocable_r_v<R, F, argv...>;
 
@@ -56,6 +61,43 @@ namespace SE7 {
 			}
 
 			return str;
+		}
+
+		constexpr char *endian_flip(char *bytes, unsigned int size) {
+			if (!bytes){
+				return bytes;
+			}
+
+			char *begin = bytes, *end = bytes + (size - 1);
+			int offset = size % 2 == 0 ? 1 : 0;
+
+			while (begin + offset != end) {
+				char temp = *begin;
+				*begin = *end;
+				*end = temp;
+
+				begin++;
+				end--;
+			}
+
+			if (offset == 1) {
+				char temp = *begin;
+				*begin = *end;
+				*end = temp;
+			}
+
+			return bytes;
+		}
+
+		constexpr std::byte endian_size_t_code(std::endian e) {
+			switch (e) {
+				case std::endian::little:
+					return std::byte(0);
+				case std::endian::big:
+					return std::byte(1);
+			}
+
+			return std::byte(-1);
 		}
 	}
 
@@ -217,6 +259,8 @@ namespace SE7 {
 			static constexpr flag_t type_float = 		0b101111111;
 			static constexpr flag_t type_double = 		0b111111111;
 
+
+
 			static constexpr type_size_t type_size_bool = 1;
 
 			static constexpr type_size_t type_size_char = 1;
@@ -267,7 +311,66 @@ namespace SE7 {
 				return static_cast<type_size_t>(-1);
 			}
 
-			static std::map<std::type_index, flag_t> type_map;
+			struct type_pair {
+				std::type_index type;
+				flag_t flag;
+
+				type_pair() : type(typeid(void)), flag(0) {}
+				type_pair(const std::type_info &ti, flag_t f) : type(ti), flag(f) {}				
+			};
+
+			class type_map_t {
+			private:
+				std::vector<type_pair> type_pairs;
+			public:
+				type_map_t(int capacity = 14) : type_pairs(capacity) {}
+
+				std::type_index operator[](flag_t flag) {
+					std::vector<type_pair>::iterator it;
+
+					if (
+						(it = std::find_if(
+							this->type_pairs.begin(), this->type_pairs.end(),
+							[&](const type_pair &tp) {
+								return tp.flag == flag;
+							}
+						)
+						) == this->type_pairs.end()
+					) {
+						throw internal::not_found("Could not find type");
+					}
+
+					return it->type;;
+				}
+
+				flag_t operator[](std::type_index type) {
+					std::vector<type_pair>::iterator it;
+
+					if (
+						(it = std::find_if(
+							this->type_pairs.begin(), this->type_pairs.end(),
+							[&](const type_pair &tp) {
+								return tp.type == type;
+							}
+						)
+						) == this->type_pairs.end()
+					) {
+						throw internal::not_found("Could not find type");
+					}
+
+					return it->flag;
+				}
+
+				void push_back(const type_pair &tp) {
+					this->type_pairs.push_back(tp);
+				}
+
+				void push_back(type_pair &&tp) {
+					this->type_pairs.push_back(std::move(tp));
+				}
+			};
+
+			static type_map_t type_map;
 			static std::mutex type_map_init_mutex;
 			static bool initialized;
 
@@ -278,23 +381,24 @@ namespace SE7 {
 				std::unique_lock<std::mutex> type_map_init_lock(type_map_init_mutex);
 
 				if (!initialized) {
-					type_map.insert({ typeid(bool), type_bool });
-					type_map.insert({ typeid(char), type_char });
-					type_map.insert({ typeid(unsigned char), type_unsigned | type_char });
-					type_map.insert({ typeid(short), type_short });
-					type_map.insert({ typeid(unsigned short), type_unsigned | type_short });
-					type_map.insert({ typeid(wchar_t), type_wchar_t });
-					type_map.insert({ typeid(int), type_int });
-					type_map.insert({ typeid(unsigned int), type_unsigned | type_int });
-					type_map.insert({ typeid(long), type_long });
-					type_map.insert({ typeid(unsigned long), type_unsigned | type_long });
-					type_map.insert({ typeid(long long), type_long_long });
-					type_map.insert({ typeid(unsigned long long), type_unsigned | type_long_long });
-					type_map.insert({ typeid(float), type_float });
-					type_map.insert({ typeid(double), type_double });
+					type_map.push_back(type_pair(typeid(bool), type_bool));
+					type_map.push_back(type_pair(typeid(char), type_char));
+					type_map.push_back(type_pair(typeid(unsigned char), type_unsigned | type_char));
+					type_map.push_back(type_pair(typeid(short), type_short));
+					type_map.push_back(type_pair(typeid(unsigned short), type_unsigned | type_short));
+					type_map.push_back(type_pair(typeid(wchar_t), type_wchar_t));
+					type_map.push_back(type_pair(typeid(int), type_int));
+					type_map.push_back(type_pair(typeid(unsigned int), type_unsigned | type_int));
+					type_map.push_back(type_pair(typeid(long), type_long));
+					type_map.push_back(type_pair(typeid(unsigned long), type_unsigned | type_long));
+					type_map.push_back(type_pair(typeid(long long), type_long_long));
+					type_map.push_back(type_pair(typeid(unsigned long long), type_unsigned | type_long_long));
+					type_map.push_back(type_pair(typeid(float), type_float));
+					type_map.push_back(type_pair(typeid(double), type_double));
 				}
 			}
 
+			// TODO: Clean up
 			std::ios_base::openmode do_not_override_if_exists(const string &filename) {
 				if (std::filesystem::exists(filename)) {
 					return std::ios_base::in | std::ios_base::out | 
@@ -334,10 +438,20 @@ namespace SE7 {
 							this->internal_stream
 						);
 
-						// Format: flag_t variable_name_length variable_name variable_value
+						// Format: type variable_name_length variable_name variable_value
+
+						static constexpr std::byte endianness_code = 
+							internal::endian_size_t_code(std::endian::native);
 
 						temp_ref.write(
-							reinterpret_cast<const char *>(&type_map[typeid(P)]),
+							reinterpret_cast<const char *>(&endianness_code),
+							sizeof(std::byte)
+						);
+
+						flag_t flag = type_map[typeid(P)];
+
+						temp_ref.write(
+							reinterpret_cast<const char *>(&flag),
 							sizeof(flag_t)
 						);
 
@@ -368,7 +482,7 @@ namespace SE7 {
 			}
 		};
 
-		std::map<std::type_index, toolbox::flag_t> toolbox::type_map;
+		toolbox::type_map_t toolbox::type_map;
 		std::mutex toolbox::type_map_init_mutex;
 		bool toolbox::initialized;
 	}

@@ -1,6 +1,7 @@
 package SE7;
 
 import java.io.File;
+import java.io.FileInputStream;
 
 public class Test {
 	public static void main(String[] args) {
@@ -13,9 +14,11 @@ public class Test {
 		}
 
 		try {
-			Toolbox t = new Toolbox(new File(args[0]));
+			Toolbox t = new FileToolbox(args[0]);
 
-			t.get("boing");
+			Primitive p = new Integer("boing");
+
+			t.get(p);
 		} catch(final Exception e) {
 			e.printStackTrace();
 		}
