@@ -1,0 +1,16 @@
+{
+  "Version": 1,
+  "ProjectMap": {
+    "0c856f28-0b74-4701-9422-decab670461e": {
+      "ProjectGuid": "0c856f28-0b74-4701-9422-decab670461e",
+      "DisplayName": "Project-LINK",
+      "ColorIndex": 0
+    },
+    "0cf09653-d2fa-41d3-b275-eab9e43de233": {
+      "ProjectGuid": "0cf09653-d2fa-41d3-b275-eab9e43de233",
+      "DisplayName": "Sandbox",
+      "ColorIndex": 1
+    }
+  },
+  "NextColorIndex": 2
+}
